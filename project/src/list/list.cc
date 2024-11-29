@@ -1,35 +1,41 @@
 #include "list/list.h"
-
+#include <cstdint>
+#include <iostream>
 #include <cassert>
 #include <cstdlib>
 #include <mutex>
+#include "sync/epoch.h"
+#include "sync/lock.h"
+#include "common/utils.h"
 
 namespace FinalProject {
 
-auto SortedList::NewNode(int key, int value, Node *next) -> Node * {
-  auto memory = malloc(sizeof(Node));
-  return new (memory) Node(key, value, next);
+template <typename T>
+auto SortedList<T>::NewNode(T value, Node<T> *next) -> Node<T>* {
+  auto memory = malloc(sizeof(Node<T>));
+  return new (memory) Node<T>(value, next);
 }
 
-MutexSortedList::~MutexSortedList() {
-  Node *tmp;
+template <typename T>
+MutexSortedList<T>::~MutexSortedList() {
+  Node<T> *tmp;
   for (; root_ != nullptr; root_ = tmp) {
     tmp = root_->next;
     free(root_);
   }
 }
-
-void MutexSortedList::Insert(int key, int value) {
+template <typename T>
+void MutexSortedList<T>::Insert(T value) {
   std::unique_lock guard(lock_);
-  if (root_ == nullptr || root_->key > key) {
-    root_ = NewNode(key, value, root_);
+  if (root_ == nullptr || root_->value <=> value > 0) {
+    root_ = this->NewNode(value, root_);
     return;
   }
   bool found = false;
-  Node *prev = nullptr;
+  Node<T> *prev = nullptr;
   for (auto current = root_; current != nullptr; current = current->next) {
-    if (current->key > key) { break; }
-    if (current->key == key) {
+    if (current->value <=> value > 0) { break; }
+    if (current->value <=> value == 0) {
       found = true;
       break;
     }
@@ -39,34 +45,34 @@ void MutexSortedList::Insert(int key, int value) {
     assert(prev->next != nullptr);
     prev->next->value = value;
   } else {
-    prev->next = NewNode(key, value, prev->next);
+    prev->next = this->NewNode(value, prev->next);
   }
 }
-
-auto MutexSortedList::LookUp(int key, int &out_value) -> bool {
+template <typename T>
+auto MutexSortedList<T>::LookUp(T value, T &result) -> bool {
   std::shared_lock guard(lock_);
   bool found = false;
   for (auto current = root_; current != nullptr; current = current->next) {
-    if (current->key > key) { break; }
-    if (current->key == key) {
+    if (current->value <=> value > 0) { break; }
+    if (current->value  <=> value == 0) {
       found     = true;
-      out_value = current->value;
+      result = current->value;
       break;
     }
   }
 
   return found;
 }
-
-auto MutexSortedList::Delete(int key) -> bool {
+template <typename T>
+auto MutexSortedList<T>::Delete(T value) -> bool {
   std::unique_lock guard(lock_);
 
   bool found = false;
-  Node *prev = nullptr;
-  Node *current;
+  Node<T> *prev = nullptr;
+  Node<T> *current;
   for (current = root_; current != nullptr; current = current->next) {
-    if (current->key > key) { break; }
-    if (current->key == key) {
+    if (current->value <=> value > 0) { break; }
+    if (current->value <=> value == 0) {
       found = true;
       if (prev == nullptr) {
         root_ = current->next;
@@ -85,43 +91,91 @@ auto MutexSortedList::Delete(int key) -> bool {
   return found;
 }
 
-OptimisticSortedList::OptimisticSortedList(EpochHandler *ep) : epoch_(ep) {}
+template <typename T>
+OptimisticSortedList<T>::OptimisticSortedList(EpochHandler *ep) : epoch_(ep) {}
 
-OptimisticSortedList::~OptimisticSortedList() {
-  Node *tmp;
+template <typename T>
+OptimisticSortedList<T>::~OptimisticSortedList() {
+  Node<T> *tmp;
   for (; root_ != nullptr; root_ = tmp) {
     tmp = root_->next;
     free(root_);
   }
 }
 
-/**
- * TODO: Similar to MutexSortedList::Insert()
- */
-void OptimisticSortedList::Insert(int key, int value) { throw std::logic_error("Not yet implemented"); }
+template <typename T>
+void OptimisticSortedList<T>::Insert(T value) { 
+  HybridGuard guard(&lock_, GuardMode::EXCLUSIVE);
+  if (root_ == nullptr || root_->value <=> value > 0) {
+    root_ = this->NewNode( value, root_);
+    return;
+  }
+  bool found = false;
+  Node<T> *prev = nullptr;
+  for (auto current = root_; current != nullptr; current = current->next) {
+    if (current->value <=> value > 0) { break; }
+    if (current->value <=> value == 0) {
+      found = true;
+      break;
+    }
+    prev = current;
+  }
+  if (found) {
+    assert(prev->next != nullptr);
+    prev->next->value = value;
+  } else {
+    prev->next = this->NewNode(value, prev->next);
+  }
+}
 
-/**
- * TODO: LookUp: Similar to MutexSortedList::LookUp(), but with an optimistic lock instead
- *
- * Pseudo-code:
- * Loop infinitely, i.e. while(true) {
- *  try {
- *  - Declare both epoch guard and an optimistic guard - see test/epoch.cc how to do it
- *  - Execute the look up operation similar to MutexSortedList::LookUp()
- *  - Return the result
- *  } catch (const sync::RestartException &) {}
- * }
- *
- * You should try to explain why it works
- */
-auto OptimisticSortedList::LookUp(int key, int &out_value) -> bool { throw std::logic_error("Not yet implemented"); }
+template <typename T>
+auto OptimisticSortedList<T>::LookUp(T value, T &result) -> bool { 
+   
+  while(true){ 
+    try{
+     EpochGuard epoch_guard(&(epoch_->local_epoch[thread_id]), epoch_->global_epoch); 
+     HybridGuard hybrid_guard(&lock_, GuardMode::OPTIMISTIC);
+     bool found = false;
+      for (auto current = root_; current != nullptr; current = current->next) {
+        if (current->value <=> value > 0) { break; }
+        if (current->value <=> value == 0) {
+           found     = true;
+           result = current->value;
+           break;
+        }
+      }
+       return found;
+    } catch (const RestartException &) {
+      //std::cout << "LookUp failed" << std::endl;
+    }
+  }
+}
 
-/**
- * TODO: Similar to MutexSortedList::Delete()
- *
- * Only difference is that, instead of physically delete the node using free(),
- *  you used EpochHandler::DeferFreePointer()
- */
-auto OptimisticSortedList::Delete(int key) -> bool { throw std::logic_error("Not yet implemented"); }
+template <typename T>
+auto OptimisticSortedList<T>::Delete(T value) -> bool {   
+  HybridGuard guard(&lock_, GuardMode::EXCLUSIVE);
+  bool found = false;
+  Node<T> *prev = nullptr;
+  Node<T> *current;
+  for (current = root_; current != nullptr; current = current->next) {
+    if (current->value <=> value > 0) { break; }
+    if (current->value <=> value == 0) {
+      found = true;
+      if (prev == nullptr) {
+        root_ = current->next;
+      } else {
+        prev->next = current->next;
+      }
+      break;
+    }
+    prev = current;
+  }
 
+  if(found){
+    assert(current != nullptr);
+    epoch_->DeferFreePointer(thread_id, current);
+  }
+
+  return found;
+}
 }  // namespace FinalProject

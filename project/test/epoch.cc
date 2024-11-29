@@ -1,4 +1,4 @@
-#include <semaphore.h>
+#include <semaphore>
 #include <array>
 #include <iostream>
 #include <random>
@@ -69,11 +69,16 @@ UTEST(TestGuard, NormalOperation) {
   EXPECT_GT(optimistic_restart_cnt.load(), 0);
 }
 
-// Duy: For MacOS students: Semaphore was deprecated, thus this test will not run properly in your machine
-// Two possible solutions:
-// - Run this in a Linux machine
-// - Replace sem_t with std::binary_semaphore
-// Whoever can do the 2nd will receive a bonus - make sure to send me an email regarding this
+template <unsigned long... I, typename T>
+constexpr auto sem_init(T num, std::index_sequence<I...>) noexcept -> std::array<std::binary_semaphore, sizeof...(I)> {
+  return {((void)I, std::binary_semaphore(num))...};
+}
+
+template <unsigned long N, typename T>
+constexpr auto sem_init(T num) noexcept -> std::array<std::binary_semaphore, N> {
+  return sem_init(num, std::make_index_sequence<N>{});
+}
+
 UTEST(TestEpoch, NormalOperation) {
   EpochHandler man(NO_THREADS);
 
@@ -83,19 +88,14 @@ UTEST(TestEpoch, NormalOperation) {
   }
 
   std::thread threads[NO_THREADS];
-  std::array<std::unique_ptr<std::binary_semaphore>, NO_THREADS> signal_main_to_thread;
-  std::array<std::unique_ptr<std::binary_semaphore>, NO_THREADS> signal_thread_to_main;
-
-  for (int tid = 0; tid < NO_THREADS; tid++) {
-    signal_main_to_thread[tid] = std::make_unique<std::binary_semaphore>(0);
-    signal_thread_to_main[tid] = std::make_unique<std::binary_semaphore>(0);
-  }
+  auto signal_main_to_thread = sem_init<NO_THREADS>(0);
+  auto signal_thread_to_main = sem_init<NO_THREADS>(0);
 
   /* Worker threads */
   for (int tid = 0; tid < NO_THREADS; tid++) {
     threads[tid] = std::thread([&, thread_id = tid]() {
       for (auto loop_epoch = 1; loop_epoch <= NO_ENTRIES; loop_epoch++) {
-        signal_main_to_thread[thread_id]->acquire();
+        signal_main_to_thread[thread_id].acquire();
 
         /* Delete all local ptrs < min epochs */
         man.FreeOutdatedPtr(thread_id);
@@ -117,7 +117,7 @@ UTEST(TestEpoch, NormalOperation) {
         if (thread_id == 0) { man.AdvanceGlobalEpoch(); }
 
         /* Notify main thread this thread completes current epoch */
-        signal_thread_to_main[thread_id]->release();
+        signal_thread_to_main[thread_id].release();
         std::atomic_thread_fence(std::memory_order_seq_cst);
       }
     });
@@ -126,10 +126,10 @@ UTEST(TestEpoch, NormalOperation) {
   /* Main thread */
   for (auto loop_epoch = 1; loop_epoch <= NO_ENTRIES; loop_epoch++) {
     /* Signal all workers to execute next epoch */
-    for (int tid = 0; tid < NO_THREADS; tid++) { signal_main_to_thread[tid]->release(); }
+    for (int tid = 0; tid < NO_THREADS; tid++) { signal_main_to_thread[tid].release(); }
 
     /* Wait until all workers complete this epoch */
-    for (int tid = 0; tid < NO_THREADS; tid++) { signal_thread_to_main[tid]->acquire(); }
+    for (int tid = 0; tid < NO_THREADS; tid++) { signal_main_to_thread[tid].acquire(); }
 
     /* Every defer list should have not more than two pointers */
     std::atomic_thread_fence(std::memory_order_seq_cst);

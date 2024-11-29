@@ -3,7 +3,7 @@ SRC = src/sync/lock.cc src/sync/guard.cc src/sync/epoch.cc src/list/list.cc
 LDFLAGS = -lpthread
 
 format:
-	find . -regex '.*\.\(cpp\|hpp\|cc\|cxx\|cc\|h\)' -exec clang-format -style=file -i {} \;
+	find . -regex '.*\.\(cpp\|hpp\|cc\|cxx\|cc\|h\)' -exec .clang-format -style=file -i {} \;
 	@echo "Done"
 
 test:

@@ -4,26 +4,6 @@
 
 namespace FinalProject {
 
-/**
- * A lock implementation that supports three locking modes: Shared, Exclusive, and Optimistic
- *
- * First 8 bits are used to store the state of this lock:
- * - 0: Unlocked
- * - 1 - 254: The number of acquired shared lock on this is 1 -> 254
- * - 255: Exclusive lock was acquired
- * The tests ensure that concurrent shared lock is not higher than 254
- * The rest 56 bits are used to store the version counter of this lock
- *
- * Locking mode compatibility:
- *              | Optimistic | Shared | Exclusive
- * Optimistic   |     V      |   V    |     X
- * Shared       |     V      |   V    |     X
- * Exclusive    |     X      |   X    |     X
- *
- * More can be read under:
- * - https://db.in.tum.de/~freitag/papers/p29-neumann-cidr20.pdf
- * - https://dl.acm.org/doi/abs/10.1145/3399666.3399908
- */
 class HybridLock {
  public:
   static constexpr uint64_t VERSION_MASK = (static_cast<uint64_t>(1) << 56) - 1;

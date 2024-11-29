@@ -7,46 +7,48 @@
 #include <shared_mutex>
 
 namespace FinalProject {
-
+ template <typename T>
 class SortedList {
  public:
   SortedList() = default;
-  auto NewNode(int key, int value, Node *next) -> Node *;
-  virtual void Insert(int key, int value)              = 0;
-  virtual auto LookUp(int key, int &out_value) -> bool = 0;
-  virtual auto Delete(int key) -> bool                 = 0;
+  
+  auto NewNode(T value, Node<T> *next) -> Node<T> *;
+  virtual void Insert(T value)             = 0;
+  virtual auto LookUp(T value, T &result) -> bool = 0;
+  virtual auto Delete(T value) -> bool                = 0;
 };
 
-class MutexSortedList : SortedList {
+ template <typename T>
+class MutexSortedList : SortedList<T> {
  public:
   MutexSortedList() = default;
   ~MutexSortedList();
-
-  void Insert(int key, int value);
-  auto LookUp(int key, int &out_value) -> bool;
-  auto Delete(int key) -> bool;
+  void Insert(T value);
+  auto LookUp(T value, T &result) -> bool;
+  auto Delete(T value) -> bool;
 
  private:
-  Node *root_{nullptr};
+  Node<T> *root_{nullptr};
   std::shared_mutex lock_;
 };
 
 /**
  * TODO: Your task is to implement the following
  */
-class OptimisticSortedList : SortedList {
+ template <typename T>
+class OptimisticSortedList : SortedList<T> {
  public:
   OptimisticSortedList(EpochHandler *ep);
   ~OptimisticSortedList();
+  void Insert(T value);
+  auto LookUp(T value, T &result) -> bool;
+  auto Delete(T value) -> bool;
 
-  void Insert(int key, int value);
-  auto LookUp(int key, int &out_value) -> bool;
-  auto Delete(int key) -> bool;
-
- private:
-  Node *root_{nullptr};
+  private:
+  Node<T> *root_{nullptr};
   HybridLock lock_;
   EpochHandler *epoch_;
 };
 
 }  // namespace FinalProject
+

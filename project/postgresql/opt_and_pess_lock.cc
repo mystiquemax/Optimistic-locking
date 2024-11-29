@@ -8,12 +8,6 @@
 #include <chrono>
 #include <random>
 
-//https://stackoverflow.com/questions/51633845/how-to-add-libpqxx-library-to-cmake
-//https://stackoverflow.com/questions/30778015/how-to-increase-the-max-connections-in-postgres
-//export LD_LIBRARY_PATH=$HOME/local/lib:$LD_LIBRARY_PATH
-//export PATH=$HOME/local/bin:$PATH
-// md5
-// Entity definitions
 struct Account {
     int id;
     std::string username;
@@ -33,9 +27,9 @@ int getRandomNumber(int min, int max) {
     return dist(gen);
 }
 // Pessimistic Locking Implementation
-class AccountRepository {
+class AccountRepositoryPess {
 public:
-    AccountRepository(pqxx::connection& conn) : conn(conn) {}
+    AccountRepositoryPess(pqxx::connection& conn) : conn(conn) {}
 
     void deposit(const DepositRequest& request) {
         pqxx::work txn(conn);
@@ -117,7 +111,7 @@ private:
     pqxx::connection& conn;
 };
 
-void testData(int user_count) {
+void testDataPess(int user_count) {
     std::mutex mtx;
     std::vector<std::thread> threads;
     for (int i = 0; i < user_count; i++) {
@@ -127,7 +121,7 @@ void testData(int user_count) {
                 pqxx::connection conn;
                 conn.prepare("select_account_lock", "SELECT * FROM account WHERE username = $1 LIMIT 1 FOR NO KEY UPDATE");
                 conn.prepare("deposit_account", "UPDATE account SET balance = $1, version = version+1 WHERE id = $2");
-                AccountRepository localRepo(conn);
+                AccountRepositoryPess localRepo(conn);
                 DepositRequest req{std::to_string( i + 1), 1000};
                 localRepo.deposit(req);
                 conn.disconnect();
@@ -154,7 +148,7 @@ void testDataOpt( int user_count) {
                 conn.prepare("select_account_by_username", "SELECT * FROM account WHERE username = $1 LIMIT 1");
                 conn.prepare("deposit_account_opt", "UPDATE account SET balance = $1, version = version+1 WHERE id = $2 AND version = $3");
                 AccountRepositoryOpt localRepo(conn);
-                DepositRequest req{std::to_string( i+1), 1000};
+                DepositRequest req{std::to_string(i+1), 1000};
                 localRepo.depositOpt(req);
                 conn.disconnect();
             } catch (const std::exception& e) {
@@ -242,14 +236,14 @@ int main() {
     //insertData(1000);
     std::cout << "Testing pessimistic locking:" << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
-    testData(100);
+    testDataPess(100);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration_ns = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     std::cout << "Execution time: " << duration_ns << " ms" << std::endl;
 
     std::cout << "Testing optimistic locking:" << std::endl;
     start = std::chrono::high_resolution_clock::now();
-    testDataOpt(3);
+    testDataOpt(100);
     end = std::chrono::high_resolution_clock::now();
     duration_ns = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     std::cout << "Execution time: " << duration_ns << " ms" << std::endl;

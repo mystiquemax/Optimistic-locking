@@ -48,7 +48,7 @@ UTEST(TestHybridLock, NormalOperation) {
   HybridLock lock;
 
   std::thread threads[NO_THREADS];
-  std::atomic_bool is_running = true;
+  std::atomic_bool is_running(true);
 
   for (int idx = 0; idx < NO_THREADS; idx++) {
     // 50% Write, 50% Read
@@ -87,7 +87,7 @@ UTEST(TestHybridLock, HeavyOperation) {
   HybridLock lock;
 
   std::thread threads[NO_THREADS];
-  std::atomic_bool is_running = true;
+  std::atomic_bool is_running(true);
 
   for (int idx = 0; idx < NO_THREADS; idx++) {
     // 50% Write, 50% Read
